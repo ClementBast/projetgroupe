@@ -1,67 +1,23 @@
-# VendreFacile – Plateforme de Petites Annonces
+# VendreFacile
 
-## Architecture
+Plateforme web de petites annonces gratuites (type LeBonCoin).
+Projet réalisé dans le cadre du TP d'architecture n-tiers.
 
-```
-┌────────────┐      ┌──────────┐      ┌──────┐ ┌──────┐ ┌──────┐
-│  Client     │─────▶│  API     │─────▶│ pg-0 │ │ pg-1 │ │ pg-2 │
-│ (REST/JSON) │      │ Express  │      │PRIMARY│ │STANDBY│ │STANDBY│
-└────────────┘      └────┬─────┘      └──┬───┘ └──┬───┘ └──┬───┘
-                         │               │        │        │
-                         ▼               └────────┴────────┘
-                    ┌──────────┐              Réplication
-                    │  Pgpool  │◀── Load balancing + failover
-                    └──────────┘
-```
+## Stack
 
-- **API** : Node.js / Express (port 3000)
-- **Base de données** : PostgreSQL 17 en cluster HA (3 nœuds via repmgr)
-- **Pgpool-II** : load-balancing lectures, failover automatique
-- **Séparation lecture/écriture** : writes → pgpool (primary), reads → pg-1 (standby)
+Le backend est une API Node.js (Express) qui tourne derrière un frontend servi par Nginx.
+Côté données, on utilise un cluster PostgreSQL 17 en haute disponibilité : un nœud primary (`pg-0`) et deux standbys (`pg-1`, `pg-2`), orchestrés par `repmgr`. Pgpool-II est placé devant pour le load-balancing des lectures et le failover automatique.
 
-## Base de données distribuée
+L'API sépare les écritures (via pgpool, redirigées vers le primary) et les lectures (directement sur un standby) pour réduire la charge.
 
-| Aspect | Choix |
-|---|---|
-| **Moteur** | PostgreSQL 17 |
-| **Réplication** | Streaming réplication via repmgr (1 primary + 2 standby) |
-| **Load balancing** | Pgpool-II répartit les SELECT sur les standby |
-| **Failover** | Automatique via repmgr (promotion standby → primary) |
-| **Modèle CAP** | CP – Cohérence forte + tolérance au partitionnement |
-| **Sharding** | Non nécessaire à ce stade (<10k utilisateurs), extensible via Citus |
+## Fonctionnalités
 
-## Tables
-
-- `users` – comptes (user/pro/admin), géolocalisation
-- `categories` – arbre de catégories
-- `annonces` – petites annonces avec prix, lieu, coordonnées GPS
-- `annonce_images` – images liées aux annonces
-- `favorites` – favoris utilisateur
-- `conversations` – fils de discussion par annonce
-- `messages` – messages dans les conversations
-
-## API Endpoints
-
-| Méthode | Route | Auth | Description |
-|---|---|---|---|
-| POST | `/api/auth/register` | ✗ | Inscription |
-| POST | `/api/auth/login` | ✗ | Connexion (JWT) |
-| GET | `/api/profile` | ✓ | Mon profil |
-| PUT | `/api/profile` | ✓ | Modifier profil |
-| GET | `/api/categories` | ✗ | Liste catégories |
-| GET | `/api/annonces` | ✗ | Recherche (category_id, city, price_min, price_max, q) |
-| GET | `/api/annonces/:id` | ✗ | Détail annonce |
-| POST | `/api/annonces` | ✓ | Créer annonce |
-| PUT | `/api/annonces/:id` | ✓ | Modifier annonce |
-| DELETE | `/api/annonces/:id` | ✓ | Supprimer annonce |
-| GET | `/api/favorites` | ✓ | Mes favoris |
-| POST | `/api/favorites/:annonce_id` | ✓ | Ajouter favori |
-| DELETE | `/api/favorites/:annonce_id` | ✓ | Retirer favori |
-| GET | `/api/conversations` | ✓ | Mes conversations |
-| POST | `/api/conversations` | ✓ | Démarrer conversation |
-| GET | `/api/conversations/:id/messages` | ✓ | Messages d'une conversation |
-| POST | `/api/conversations/:id/messages` | ✓ | Envoyer message |
-| GET | `/api/health` | ✗ | Healthcheck |
+- Inscription / connexion (JWT + bcrypt)
+- CRUD annonces (créer, modifier, supprimer, changer le statut)
+- Recherche par catégorie, ville, prix, texte libre
+- Favoris
+- Messagerie interne entre acheteur et vendeur
+- Gestion de profil
 
 ## Lancement
 
@@ -69,12 +25,22 @@
 docker compose up --build -d
 ```
 
-L'API sera disponible sur `http://localhost:3000`.
-Le schéma de base est appliqué automatiquement au démarrage (`initDb.js`).
+Le frontend est accessible sur `http://localhost:8080`.
+Le schéma de base et les données de démo sont créés automatiquement au premier lancement (`initDb.js`).
 
-## Principes appliqués
+Comptes de démo :
+- `seller@vendrefacile.local` / `password123`
+- `buyer@vendrefacile.local` / `password123`
 
-- **KISS** : API monolithique simple, un seul service applicatif
-- **SOLID** : séparation claire des responsabilités (auth, CRUD, messagerie)
-- **Séparation R/W** : lectures sur standby, écritures sur primary via pgpool
-- **Sécurité** : bcrypt pour les mots de passe, JWT pour l'authentification
+## Structure du projet
+
+```
+api/           API Express (src/index.js, src/initDb.js)
+frontend/      Interface web (index.html) + config Nginx
+docs/          Schémas d'architecture (schemas.html)
+docker-compose.yml
+```
+
+## Documentation
+
+Les schémas (use case, séquence, classes, C4, architecture, DDD, ERD, base distribuée) sont dans `docs/schemas.html` — il suffit de l'ouvrir dans un navigateur.
